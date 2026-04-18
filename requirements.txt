@@ -1,0 +1,10 @@
+Flask
+protobuf
+python-dotenv
+vulture
+pipreqs
+groq
+openai
+google-genai
+gunicorn
+uvicorn
