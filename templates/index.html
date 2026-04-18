@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeadHunt — Dead Code Scanner</title>
+    <meta name="description" content="Scan any GitHub repository for dead code, zombie dependencies, and unused imports. DeadHunt analyzes your codebase with surgical precision.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --neon: #00ff88;
+            --neon-dim: #00cc6a;
+            --neon-glow: rgba(0, 255, 136, 0.15);
+            --neon-glow-strong: rgba(0, 255, 136, 0.35);
+            --danger: #ff3366;
+            --danger-glow: rgba(255, 51, 102, 0.3);
+            --bg-deep: #05080a;
+            --bg-panel: #0a0f14;
+            --bg-card: #0d1419;
+            --border: #1a2530;
+            --border-hover: #253545;
+            --text-primary: #e0e8f0;
+            --text-secondary: #6b8299;
+            --text-muted: #3d5266;
+            --font-display: 'Syne', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* ── Scanline overlay ── */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 255, 136, 0.015) 2px,
+                rgba(0, 255, 136, 0.015) 4px
+            );
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        /* ── Grid background ── */
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(0, 255, 136, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 136, 0.03) 1px, transparent 1px);
+            background-size: 60px 60px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* ── Floating particles canvas ── */
+        #particles-canvas {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* ── NAV ── */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            padding: 1.25rem 2.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(5, 8, 10, 0.85);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            text-decoration: none;
+        }
+
+        .nav-logo {
+            width: 36px;
+            height: 36px;
+            border: 2px solid var(--neon);
+            border-radius: 8px;
+            display: grid;
+            place-items: center;
+            font-size: 1rem;
+            color: var(--neon);
+            font-weight: 800;
+            font-family: var(--font-mono);
+            box-shadow: 0 0 15px var(--neon-glow), inset 0 0 10px var(--neon-glow);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .nav-logo::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, var(--neon-glow), transparent);
+        }
+
+        .nav-title {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: 1.1rem;
+            letter-spacing: -0.02em;
+            color: var(--text-primary);
+        }
+
+        .nav-title span {
+            color: var(--neon);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.8rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            transition: color 0.3s, text-shadow 0.3s;
+        }
+
+        .nav-links a:hover {
+            color: var(--neon);
+            text-shadow: 0 0 20px var(--neon-glow);
+        }
+
+        /* ── HERO ── */
+        .hero {
+            position: relative;
+            z-index: 1;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 8rem 2rem 4rem;
+            text-align: center;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            font-size: 0.7rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--neon);
+            background: var(--neon-glow);
+            margin-bottom: 2.5rem;
+            animation: fadeSlideUp 0.8s ease-out;
+        }
+
+        .hero-badge::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: var(--neon);
+            border-radius: 50%;
+            animation: blink 1.5s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.2; }
+        }
+
+        .hero h1 {
+            font-family: var(--font-display);
+            font-size: clamp(3rem, 8vw, 6.5rem);
+            font-weight: 800;
+            line-height: 0.95;
+            letter-spacing: -0.04em;
+            margin-bottom: 1.5rem;
+            animation: fadeSlideUp 0.8s ease-out 0.15s both;
+        }
+
+        .hero h1 .line-1 {
+            display: block;
+            color: var(--text-primary);
+        }
+
+        .hero h1 .line-2 {
+            display: block;
+            color: var(--neon);
+            position: relative;
+        }
+
+        /* Glitch effect on the hero accent text */
+        .hero h1 .line-2::before,
+        .hero h1 .line-2::after {
+            content: attr(data-text);
+            position: absolute;
+            left: 0;
+            right: 0;
+            opacity: 0;
+        }
+
+        .hero h1 .line-2::before {
+            animation: glitch-1 4s infinite;
+            color: var(--danger);
+            clip-path: polygon(0 0, 100% 0, 100% 33%, 0 33%);
+        }
+
+        .hero h1 .line-2::after {
+            animation: glitch-2 4s infinite;
+            color: #00ccff;
+            clip-path: polygon(0 66%, 100% 66%, 100% 100%, 0 100%);
+        }
+
+        @keyframes glitch-1 {
+            0%, 90%, 100% { opacity: 0; transform: none; }
+            92% { opacity: 0.8; transform: translate(-3px, -1px); }
+            94% { opacity: 0; }
+            96% { opacity: 0.6; transform: translate(3px, 1px); }
+            98% { opacity: 0; }
+        }
+
+        @keyframes glitch-2 {
+            0%, 90%, 100% { opacity: 0; transform: none; }
+            91% { opacity: 0.6; transform: translate(3px, 2px); }
+            93% { opacity: 0; }
+            95% { opacity: 0.8; transform: translate(-2px, -1px); }
+            97% { opacity: 0; }
+        }
+
+        .hero-sub {
+            font-size: 1.05rem;
+            color: var(--text-secondary);
+            max-width: 550px;
+            line-height: 1.7;
+            font-weight: 300;
+            margin-bottom: 3.5rem;
+            animation: fadeSlideUp 0.8s ease-out 0.3s both;
+        }
+
+        .hero-sub strong {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        /* ── INPUT TERMINAL ── */
+        .input-terminal {
+            width: 100%;
+            max-width: 720px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+            animation: fadeSlideUp 0.8s ease-out 0.45s both;
+            transition: border-color 0.4s, box-shadow 0.4s;
+        }
+
+        .input-terminal:focus-within {
+            border-color: var(--neon-dim);
+            box-shadow: 0 0 40px var(--neon-glow), 0 0 80px rgba(0, 255, 136, 0.05);
+        }
+
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.85rem 1.25rem;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .terminal-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .terminal-dot:nth-child(1) { background: #ff5f57; }
+        .terminal-dot:nth-child(2) { background: #febc2e; }
+        .terminal-dot:nth-child(3) { background: #28c840; }
+
+        .terminal-title {
+            flex: 1;
+            text-align: center;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            letter-spacing: 0.06em;
+        }
+
+        .terminal-body {
+            padding: 1.5rem;
+        }
+
+        .terminal-prompt {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+        }
+
+        .terminal-prompt .user {
+            color: var(--neon);
+            font-weight: 600;
+        }
+
+        .terminal-prompt .path {
+            color: #00aaff;
+        }
+
+        .terminal-prompt .separator {
+            color: var(--text-muted);
+        }
+
+        .input-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .input-prefix {
+            color: var(--neon);
+            font-size: 1.1rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        #repo-url {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            font-size: 0.95rem;
+            font-weight: 400;
+            caret-color: var(--neon);
+            letter-spacing: 0.01em;
+        }
+
+        #repo-url::placeholder {
+            color: var(--text-muted);
+            font-style: normal;
+        }
+
+        .scan-btn {
+            flex-shrink: 0;
+            padding: 0.7rem 1.5rem;
+            background: linear-gradient(135deg, var(--neon), var(--neon-dim));
+            color: var(--bg-deep);
+            border: none;
+            border-radius: 8px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .scan-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 25px var(--neon-glow-strong), 0 0 60px var(--neon-glow);
+        }
+
+        .scan-btn:active {
+            transform: translateY(0) scale(0.98);
+        }
+
+        .scan-btn::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.5s;
+        }
+
+        .scan-btn:hover::after {
+            transform: translateX(100%);
+        }
+
+        /* ── Validation message ── */
+        .validation-msg {
+            margin-top: 0.75rem;
+            font-size: 0.75rem;
+            height: 1.2em;
+            transition: opacity 0.3s;
+        }
+
+        .validation-msg.error {
+            color: var(--danger);
+        }
+
+        .validation-msg.success {
+            color: var(--neon);
+        }
+
+        /* ── Loading state ── */
+        .scan-btn.loading {
+            pointer-events: none;
+            opacity: 0.8;
+        }
+
+        .scan-btn.loading .btn-text {
+            visibility: hidden;
+        }
+
+        .scan-btn.loading::before {
+            content: '';
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            border: 2px solid var(--bg-deep);
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            top: 50%;
+            left: 50%;
+            margin-left: -9px;
+            margin-top: -9px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ── FEATURES ── */
+        .features {
+            position: relative;
+            z-index: 1;
+            padding: 6rem 2rem 8rem;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .features-label {
+            text-align: center;
+            font-size: 0.7rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+        }
+
+        .features-heading {
+            text-align: center;
+            font-family: var(--font-display);
+            font-size: clamp(1.8rem, 4vw, 2.8rem);
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            margin-bottom: 4rem;
+            color: var(--text-primary);
+        }
+
+        .features-heading span {
+            color: var(--neon);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+        }
+
+        .feature-card {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2.25rem 1.75rem;
+            transition: border-color 0.4s, transform 0.3s, box-shadow 0.4s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--neon), transparent);
+            opacity: 0;
+            transition: opacity 0.4s;
+        }
+
+        .feature-card:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        .feature-card:hover::before {
+            opacity: 1;
+        }
+
+        .feature-step {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: var(--neon-glow);
+            border: 1px solid rgba(0, 255, 136, 0.15);
+            color: var(--neon);
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .feature-card h3 {
+            font-family: var(--font-display);
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+            color: var(--text-primary);
+        }
+
+        .feature-card p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.65;
+            font-weight: 300;
+        }
+
+        /* ── STATS BAR ── */
+        .stats-bar {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            justify-content: center;
+            gap: 4rem;
+            padding: 3rem 2rem;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-panel);
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-family: var(--font-display);
+            font-size: 2.2rem;
+            font-weight: 800;
+            color: var(--neon);
+            line-height: 1;
+            margin-bottom: 0.4rem;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        /* ── FOOTER ── */
+        footer {
+            position: relative;
+            z-index: 1;
+            text-align: center;
+            padding: 3rem 2rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        footer a {
+            color: var(--neon-dim);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* ── ANIMATIONS ── */
+        @keyframes fadeSlideUp {
+            from {
+                opacity: 0;
+                transform: translateY(24px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 768px) {
+            nav {
+                padding: 1rem 1.25rem;
+            }
+
+            .nav-links {
+                display: none;
+            }
+
+            .hero {
+                padding: 7rem 1.25rem 3rem;
+            }
+
+            .terminal-body {
+                padding: 1rem;
+            }
+
+            .input-row {
+                flex-direction: column;
+                gap: 0.75rem;
+            }
+
+            .scan-btn {
+                width: 100%;
+                padding: 0.85rem;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+
+            .stats-bar {
+                flex-wrap: wrap;
+                gap: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="particles-canvas"></canvas>
+
+    <!-- NAV -->
+    <nav>
+        <a href="#" class="nav-brand">
+            <div class="nav-logo">D</div>
+            <div class="nav-title">Dead<span>Hunt</span></div>
+        </a>
+        <ul class="nav-links">
+            <li><a href="#features">How it works</a></li>
+            <li><a href="https://github.com" target="_blank">GitHub</a></li>
+        </ul>
+    </nav>
+
+    <!-- HERO -->
+    <section class="hero">
+        <div class="hero-badge">
+            <span>Repository Dead Code Scanner</span>
+        </div>
+
+        <h1>
+            <span class="line-1">Hunt The</span>
+            <span class="line-2" data-text="Dead Code.">Dead Code.</span>
+        </h1>
+
+        <p class="hero-sub">
+            Paste a <strong>GitHub repository URL</strong> and we'll surgically scan it for
+            dead code, zombie dependencies, and unused imports — exposing
+            the rot hiding in your project.
+        </p>
+
+        <!-- Input Terminal -->
+        <form id="scan-form" class="input-terminal" autocomplete="off">
+            <div class="terminal-header">
+                <div class="terminal-dot"></div>
+                <div class="terminal-dot"></div>
+                <div class="terminal-dot"></div>
+                <span class="terminal-title">deadhunt — scan</span>
+            </div>
+            <div class="terminal-body">
+                <div class="terminal-prompt">
+                    <span class="user">root</span><span class="separator">@</span><span class="path">scanner</span><span class="separator">:~$</span>
+                    <span>scan --repo</span>
+                </div>
+                <div class="input-row">
+                    <span class="input-prefix">❯</span>
+                    <input
+                        type="url"
+                        id="repo-url"
+                        name="repo_url"
+                        placeholder="https://github.com/user/repository"
+                        required
+                        spellcheck="false"
+                        autocomplete="off"
+                    >
+                    <button type="submit" class="scan-btn" id="scan-btn">
+                        <span class="btn-text">SCAN</span>
+                    </button>
+                </div>
+                <div class="validation-msg" id="validation-msg"></div>
+            </div>
+        </form>
+    </section>
+
+    <!-- FEATURES -->
+    <section class="features" id="features">
+        <p class="features-label">// How it works</p>
+        <h2 class="features-heading">Three phases. <span>Zero mercy.</span></h2>
+
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-step">01</div>
+                <h3>Clone & Scan</h3>
+                <p>We shallow-clone the repository and parse every Python file into an AST, detecting the framework architecture automatically.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-step">02</div>
+                <h3>Hunt Dead Code</h3>
+                <p>Vulture scavenges through the AST for unused functions, classes, variables, and imports — with framework-aware whitelisting to avoid false flags.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-step">03</div>
+                <h3>Expose Zombies</h3>
+                <p>We diff the declared dependencies against actual imports to surface zombie packages — installed but never used, bloating your project.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- STATS -->
+    <div class="stats-bar">
+        <div class="stat-item">
+            <div class="stat-value">AST</div>
+            <div class="stat-label">Powered Analysis</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-value">100%</div>
+            <div class="stat-label">Open Source</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-value">0</div>
+            <div class="stat-label">False Positives*</div>
+        </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer>
+        <p>&copy; 2026 DeadHunt. Built to break things (gently). <a href="https://github.com" target="_blank">View Source</a></p>
+    </footer>
+
+    <script>
+        // ── Floating Particles ──
+        (function() {
+            const canvas = document.getElementById('particles-canvas');
+            const ctx = canvas.getContext('2d');
+            let particles = [];
+            const PARTICLE_COUNT = 50;
+
+            function resize() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+
+            function createParticle() {
+                return {
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    vx: (Math.random() - 0.5) * 0.3,
+                    vy: (Math.random() - 0.5) * 0.3,
+                    size: Math.random() * 2 + 0.5,
+                    opacity: Math.random() * 0.4 + 0.1,
+                    pulse: Math.random() * Math.PI * 2,
+                };
+            }
+
+            function init() {
+                resize();
+                particles = [];
+                for (let i = 0; i < PARTICLE_COUNT; i++) {
+                    particles.push(createParticle());
+                }
+            }
+
+            function draw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                for (const p of particles) {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.pulse += 0.015;
+
+                    if (p.x < 0) p.x = canvas.width;
+                    if (p.x > canvas.width) p.x = 0;
+                    if (p.y < 0) p.y = canvas.height;
+                    if (p.y > canvas.height) p.y = 0;
+
+                    const alpha = p.opacity * (0.6 + 0.4 * Math.sin(p.pulse));
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(0, 255, 136, ${alpha})`;
+                    ctx.fill();
+                }
+                requestAnimationFrame(draw);
+            }
+
+            window.addEventListener('resize', resize);
+            init();
+            draw();
+        })();
+
+        // ── Form Validation & Submission ──
+        const form = document.getElementById('scan-form');
+        const input = document.getElementById('repo-url');
+        const btn = document.getElementById('scan-btn');
+        const msg = document.getElementById('validation-msg');
+
+        const GITHUB_REGEX = /^https?:\/\/(www\.)?github\.com\/[\w.-]+\/[\w.-]+(\.git)?\/?$/i;
+
+        input.addEventListener('input', () => {
+            msg.textContent = '';
+            msg.className = 'validation-msg';
+        });
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            const url = input.value.trim();
+
+            if (!url) {
+                msg.textContent = '✕ Please enter a repository URL.';
+                msg.className = 'validation-msg error';
+                input.focus();
+                return;
+            }
+
+            if (!GITHUB_REGEX.test(url)) {
+                msg.textContent = '✕ Invalid GitHub URL. Format: https://github.com/user/repo';
+                msg.className = 'validation-msg error';
+                input.focus();
+                return;
+            }
+
+            // Valid — show success and proceed
+            msg.textContent = '✓ Valid repository. Initiating scan...';
+            msg.className = 'validation-msg success';
+            btn.classList.add('loading');
+
+            // Submit to backend after a brief visual delay
+            setTimeout(() => {
+                // POST the URL to the backend
+                // Adjust this endpoint to match your Flask/FastAPI route
+                window.location.href = `/scan?repo_url=${encodeURIComponent(url)}`;
+            }, 800);
+        });
+
+        // ── Intersection Observer for feature cards ──
+        const cards = document.querySelectorAll('.feature-card');
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry, i) => {
+                if (entry.isIntersecting) {
+                    entry.target.style.opacity = '1';
+                    entry.target.style.transform = 'translateY(0)';
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.15 });
+
+        cards.forEach((card, i) => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(30px)';
+            card.style.transition = `opacity 0.6s ease ${i * 0.15}s, transform 0.6s ease ${i * 0.15}s`;
+            observer.observe(card);
+        });
+    </script>
+</body>
+</html>

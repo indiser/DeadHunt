@@ -1,0 +1,2047 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeadHunt — Analysis Report</title>
+    <meta name="description"
+        content="DeadHunt forensic analysis report — dead code, zombie dependencies, and actionable findings.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Syne:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <!-- Marked.js v4 for markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+    <!-- highlight.js for syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+    <!-- html2pdf.js for PDF export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
+    <style>
+        /* ═══════════════════════════════════════════
+           DESIGN SYSTEM — DeadHunt Forensic Report
+           ═══════════════════════════════════════════ */
+
+        *,
+        *::before,
+        *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --neon: #00ff88;
+            --neon-dim: #00cc6a;
+            --neon-glow: rgba(0, 255, 136, 0.15);
+            --neon-glow-strong: rgba(0, 255, 136, 0.35);
+            --danger: #ff3366;
+            --danger-dim: #cc2952;
+            --danger-glow: rgba(255, 51, 102, 0.2);
+            --warning: #ffaa22;
+            --warning-dim: #cc8811;
+            --warning-glow: rgba(255, 170, 34, 0.15);
+            --info: #00bbff;
+            --info-glow: rgba(0, 187, 255, 0.15);
+            --ghost: #8855ff;
+            --ghost-glow: rgba(136, 85, 255, 0.15);
+            --bg-deep: #05080a;
+            --bg-panel: #0a0f14;
+            --bg-card: #0d1419;
+            --bg-card-hover: #111a22;
+            --bg-code: #080d12;
+            --border: #1a2530;
+            --border-hover: #253545;
+            --border-active: #2a4050;
+            --text-primary: #e0e8f0;
+            --text-secondary: #6b8299;
+            --text-muted: #3d5266;
+            --font-display: 'Syne', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            --sidebar-w: 300px;
+            --header-h: 64px;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── Scanline overlay ── */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(0deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(0, 255, 136, 0.012) 2px,
+                    rgba(0, 255, 136, 0.012) 4px);
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        /* ── Subtle grid ── */
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(0, 255, 136, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 136, 0.02) 1px, transparent 1px);
+            background-size: 80px 80px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* ═══════════════════════════════════════════
+           HEADER
+           ═══════════════════════════════════════════ */
+
+        .report-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            height: var(--header-h);
+            padding: 0 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(5, 8, 10, 0.92);
+            backdrop-filter: blur(24px);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .brand-link {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            text-decoration: none;
+        }
+
+        .brand-icon {
+            width: 32px;
+            height: 32px;
+            border: 2px solid var(--neon);
+            border-radius: 7px;
+            display: grid;
+            place-items: center;
+            font-size: 0.85rem;
+            color: var(--neon);
+            font-weight: 800;
+            font-family: var(--font-mono);
+            box-shadow: 0 0 12px var(--neon-glow);
+            position: relative;
+        }
+
+        .brand-icon::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 5px;
+            background: linear-gradient(135deg, var(--neon-glow), transparent);
+        }
+
+        .brand-name {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: 1rem;
+            color: var(--text-primary);
+            letter-spacing: -0.02em;
+        }
+
+        .brand-name span {
+            color: var(--neon);
+        }
+
+        .header-divider {
+            width: 1px;
+            height: 24px;
+            background: var(--border);
+        }
+
+        .header-tag {
+            font-size: 0.65rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            padding: 0.25rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 100px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .read-progress {
+            width: 120px;
+            height: 3px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .read-progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--neon), var(--neon-dim));
+            border-radius: 4px;
+            transition: width 0.15s ease-out;
+        }
+
+        .read-pct {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            min-width: 30px;
+            text-align: right;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .action-btn {
+            padding: 0.4rem 0.85rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+            font-size: 0.65rem;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .action-btn:hover {
+            border-color: var(--neon-dim);
+            color: var(--neon);
+            background: var(--neon-glow);
+        }
+
+        .action-btn.primary {
+            background: linear-gradient(135deg, var(--neon), var(--neon-dim));
+            color: var(--bg-deep);
+            border: none;
+            font-weight: 700;
+        }
+
+        .action-btn.primary:hover {
+            box-shadow: 0 2px 20px var(--neon-glow-strong);
+        }
+
+        /* ═══════════════════════════════════════════
+           LAYOUT — Sidebar + Main
+           ═══════════════════════════════════════════ */
+
+        .report-layout {
+            display: flex;
+            margin-top: var(--header-h);
+            min-height: calc(100vh - var(--header-h));
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ── Sidebar / TOC ── */
+        .report-sidebar {
+            position: fixed;
+            top: var(--header-h);
+            left: 0;
+            bottom: 0;
+            width: var(--sidebar-w);
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            z-index: 50;
+            transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .sidebar-header {
+            padding: 1.5rem 1.25rem 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-label {
+            font-size: 0.6rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--neon-dim);
+            margin-bottom: 0.5rem;
+        }
+
+        .repo-name {
+            font-family: var(--font-display);
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            word-break: break-all;
+        }
+
+        .scan-meta {
+            margin-top: 0.75rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+
+        .meta-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.7rem;
+        }
+
+        .meta-row .label {
+            color: var(--text-muted);
+        }
+
+        .meta-row .value {
+            color: var(--text-secondary);
+        }
+
+        /* ── Health Score ── */
+        .health-section {
+            padding: 1.25rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .health-ring-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .health-ring {
+            width: 64px;
+            height: 64px;
+            position: relative;
+        }
+
+        .health-ring svg {
+            width: 100%;
+            height: 100%;
+            transform: rotate(-90deg);
+        }
+
+        .health-ring-bg {
+            fill: none;
+            stroke: var(--border);
+            stroke-width: 4;
+        }
+
+        .health-ring-fill {
+            fill: none;
+            stroke-width: 4;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .health-score-text {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            font-family: var(--font-display);
+            font-size: 1.1rem;
+            font-weight: 800;
+        }
+
+        .health-details {
+            flex: 1;
+        }
+
+        .health-label {
+            font-size: 0.6rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 0.3rem;
+        }
+
+        .health-verdict {
+            font-family: var(--font-display);
+            font-size: 0.95rem;
+            font-weight: 700;
+        }
+
+        /* ── TOC List ── */
+        .toc-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem 0;
+        }
+
+        .toc-scroll::-webkit-scrollbar {
+            width: 3px;
+        }
+
+        .toc-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .toc-scroll::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        .toc-group-label {
+            padding: 0.6rem 1.25rem 0.35rem;
+            font-size: 0.55rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .toc-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.6rem;
+            padding: 0.55rem 1.25rem;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+            border-left: 2px solid transparent;
+            text-decoration: none;
+        }
+
+        .toc-item:hover {
+            background: rgba(0, 255, 136, 0.04);
+        }
+
+        .toc-item.active {
+            background: rgba(0, 255, 136, 0.06);
+            border-left-color: var(--neon);
+        }
+
+        .toc-item.depth-2 {
+            padding-left: 2rem;
+        }
+
+        .toc-item.depth-3 {
+            padding-left: 2.75rem;
+        }
+
+        .toc-bullet {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            margin-top: 0.4rem;
+            flex-shrink: 0;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+
+        .toc-item.active .toc-bullet {
+            background: var(--neon);
+            box-shadow: 0 0 8px var(--neon-glow-strong);
+        }
+
+        .toc-text {
+            font-size: 0.72rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
+            transition: color 0.2s;
+        }
+
+        .toc-item.active .toc-text {
+            color: var(--neon);
+        }
+
+        /* ── Mobile sidebar toggle ── */
+        .sidebar-toggle {
+            display: none;
+            position: fixed;
+            bottom: 1.5rem;
+            left: 1.5rem;
+            z-index: 200;
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            color: var(--neon);
+            font-size: 1.2rem;
+            cursor: pointer;
+            place-items: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        /* ═══════════════════════════════════════════
+           MAIN CONTENT
+           ═══════════════════════════════════════════ */
+
+        .report-main {
+            flex: 1;
+            margin-left: var(--sidebar-w);
+            padding: 2.5rem 3rem 6rem;
+            max-width: calc(100% - var(--sidebar-w));
+        }
+
+        .report-content {
+            max-width: 860px;
+            margin: 0 auto;
+        }
+
+        /* ── Dossier stamp header ── */
+        .report-stamp {
+            text-align: center;
+            padding: 3rem 0 2.5rem;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 3rem;
+            position: relative;
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        .stamp-classification {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.35rem 1rem;
+            border: 1.5px solid var(--danger);
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--danger);
+            margin-bottom: 1.5rem;
+            animation: stamp-pulse 3s infinite;
+        }
+
+        @keyframes stamp-pulse {
+
+            0%,
+            100% {
+                box-shadow: 0 0 0 0 var(--danger-glow);
+            }
+
+            50% {
+                box-shadow: 0 0 20px 2px var(--danger-glow);
+            }
+        }
+
+        .stamp-title {
+            font-family: var(--font-display);
+            font-size: clamp(1.8rem, 4vw, 2.8rem);
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
+            margin-bottom: 1rem;
+        }
+
+        .stamp-title span {
+            color: var(--neon);
+        }
+
+        .stamp-subtitle {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-weight: 300;
+        }
+
+        .stamp-stats {
+            display: flex;
+            justify-content: center;
+            gap: 2.5rem;
+            margin-top: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .stamp-stat {
+            text-align: center;
+        }
+
+        .stamp-stat-value {
+            font-family: var(--font-display);
+            font-size: 1.6rem;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 0.3rem;
+        }
+
+        .stamp-stat-value.neon {
+            color: var(--neon);
+        }
+
+        .stamp-stat-value.danger {
+            color: var(--danger);
+        }
+
+        .stamp-stat-value.warning {
+            color: var(--warning);
+        }
+
+        .stamp-stat-value.info {
+            color: var(--info);
+        }
+
+        .stamp-stat-label {
+            font-size: 0.6rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        /* ═══════════════════════════════════════════
+           RENDERED MARKDOWN STYLES
+           ═══════════════════════════════════════════ */
+
+        .md-body {
+            line-height: 1.75;
+            font-size: 0.88rem;
+            color: var(--text-secondary);
+        }
+
+        /* ── Section reveal animation ── */
+        .md-body>* {
+            opacity: 0;
+            transform: translateY(16px);
+            transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+        }
+
+        .md-body>.revealed {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ── Headings ── */
+        .md-body h1 {
+            font-family: var(--font-display);
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            letter-spacing: -0.03em;
+            margin-top: 3.5rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border);
+            position: relative;
+        }
+
+        .md-body h1::before {
+            content: '//';
+            color: var(--neon);
+            margin-right: 0.5rem;
+            opacity: 0.6;
+        }
+
+        .md-body h2 {
+            font-family: var(--font-display);
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.02em;
+            margin-top: 3rem;
+            margin-bottom: 1rem;
+            padding-left: 1rem;
+            border-left: 3px solid var(--neon);
+        }
+
+        .md-body h3 {
+            font-family: var(--font-display);
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-top: 2.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .md-body h3::before {
+            content: '▸ ';
+            color: var(--neon);
+        }
+
+        .md-body h4 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-top: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        /* ── Paragraphs ── */
+        .md-body p {
+            margin-bottom: 1rem;
+        }
+
+        /* ── Strong / Emphasis ── */
+        .md-body strong {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .md-body em {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        /* ── Lists ── */
+        .md-body ul,
+        .md-body ol {
+            margin-bottom: 1rem;
+            padding-left: 1.5rem;
+        }
+
+        .md-body li {
+            margin-bottom: 0.4rem;
+        }
+
+        .md-body li::marker {
+            color: var(--neon-dim);
+        }
+
+        /* ── Horizontal rules → section breaks ── */
+        .md-body hr {
+            border: none;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--border-active), transparent);
+            margin: 3rem 0;
+            position: relative;
+        }
+
+        .md-body hr::after {
+            content: '◆';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--bg-deep);
+            padding: 0 1rem;
+            color: var(--text-muted);
+            font-size: 0.6rem;
+        }
+
+        /* ── Inline code ── */
+        .md-body code:not(pre code) {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            padding: 0.15rem 0.45rem;
+            border-radius: 4px;
+            font-size: 0.82rem;
+            color: var(--neon);
+            font-family: var(--font-mono);
+        }
+
+        /* ── Code blocks ── */
+        .md-body pre {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            margin: 1.5rem 0;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .md-body pre::before {
+            content: '';
+            display: block;
+            padding: 0.6rem 1rem;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            font-size: 0.6rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .md-body pre code {
+            display: block;
+            padding: 1.25rem;
+            overflow-x: auto;
+            font-size: 0.8rem;
+            line-height: 1.6;
+            font-family: var(--font-mono);
+        }
+
+        .md-body pre code::-webkit-scrollbar {
+            height: 4px;
+        }
+
+        .md-body pre code::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        /* ── Blockquotes ── */
+        .md-body blockquote {
+            border-left: 3px solid var(--ghost);
+            background: var(--ghost-glow);
+            padding: 1rem 1.25rem;
+            margin: 1.5rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .md-body blockquote p {
+            margin-bottom: 0;
+            color: var(--text-primary);
+        }
+
+        /* ── Tables ── */
+        .md-body table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5rem 0;
+            font-size: 0.8rem;
+        }
+
+        .md-body thead th {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            border-bottom: 2px solid var(--neon-dim);
+            font-weight: 600;
+            color: var(--neon);
+            font-size: 0.7rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .md-body tbody td {
+            padding: 0.65rem 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .md-body tbody tr:hover {
+            background: rgba(0, 255, 136, 0.03);
+        }
+
+        /* ── Links ── */
+        .md-body a {
+            color: var(--neon);
+            text-decoration: none;
+            border-bottom: 1px solid rgba(0, 255, 136, 0.3);
+            transition: border-color 0.2s;
+        }
+
+        .md-body a:hover {
+            border-bottom-color: var(--neon);
+        }
+
+        /* ═══════════════════════════════════════════
+           FINDING CARDS — auto-generated from ## Target:
+           ═══════════════════════════════════════════ */
+
+        .finding-card {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.75rem;
+            margin: 1.5rem 0;
+            position: relative;
+            overflow: hidden;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+
+        .finding-card:hover {
+            border-color: var(--border-hover);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .finding-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 3px;
+            height: 100%;
+        }
+
+        .finding-card.risk-high::before {
+            background: var(--danger);
+        }
+
+        .finding-card.risk-medium::before {
+            background: var(--warning);
+        }
+
+        .finding-card.risk-low::before {
+            background: var(--neon);
+        }
+
+        .finding-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .finding-target {
+            font-family: var(--font-display);
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .risk-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.25rem 0.65rem;
+            border-radius: 100px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .risk-badge.high {
+            background: var(--danger-glow);
+            color: var(--danger);
+            border: 1px solid rgba(255, 51, 102, 0.3);
+        }
+
+        .risk-badge.medium {
+            background: var(--warning-glow);
+            color: var(--warning);
+            border: 1px solid rgba(255, 170, 34, 0.3);
+        }
+
+        .risk-badge.low {
+            background: var(--neon-glow);
+            color: var(--neon);
+            border: 1px solid rgba(0, 255, 136, 0.25);
+        }
+
+        .verdict-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.25rem 0.65rem;
+            border-radius: 100px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .verdict-badge.false-positive {
+            background: var(--info-glow);
+            color: var(--info);
+            border: 1px solid rgba(0, 187, 255, 0.3);
+        }
+
+        .verdict-badge.dead {
+            background: var(--danger-glow);
+            color: var(--danger);
+            border: 1px solid rgba(255, 51, 102, 0.3);
+        }
+
+        .verdict-badge.zombie {
+            background: var(--ghost-glow);
+            color: var(--ghost);
+            border: 1px solid rgba(136, 85, 255, 0.3);
+        }
+
+        .finding-body p {
+            margin-bottom: 0.5rem;
+        }
+
+        .finding-steps {
+            margin-top: 1rem;
+            padding: 1rem 1.25rem;
+            background: var(--bg-card);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .finding-steps-label {
+            font-size: 0.6rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--neon-dim);
+            margin-bottom: 0.6rem;
+        }
+
+        .finding-steps ol {
+            padding-left: 1.25rem;
+        }
+
+        .finding-steps li {
+            font-size: 0.8rem;
+            margin-bottom: 0.3rem;
+            color: var(--text-secondary);
+        }
+
+        /* ═══════════════════════════════════════════
+           LOADING STATE
+           ═══════════════════════════════════════════ */
+
+        .loading-state {
+            text-align: center;
+            padding: 6rem 2rem;
+            animation: fadeIn 0.5s;
+        }
+
+        .loading-skull {
+            font-size: 3rem;
+            margin-bottom: 1.5rem;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-10px);
+            }
+        }
+
+        .loading-text {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+        }
+
+        .loading-bar {
+            width: 200px;
+            height: 3px;
+            background: var(--border);
+            border-radius: 4px;
+            margin: 0 auto;
+            overflow: hidden;
+        }
+
+        .loading-bar-fill {
+            height: 100%;
+            width: 30%;
+            background: var(--neon);
+            border-radius: 4px;
+            animation: loading-slide 1.2s ease-in-out infinite;
+        }
+
+        @keyframes loading-slide {
+            0% {
+                transform: translateX(-100%);
+            }
+
+            100% {
+                transform: translateX(400%);
+            }
+        }
+
+        /* ═══════════════════════════════════════════
+           BACK TO TOP
+           ═══════════════════════════════════════════ */
+
+        .back-to-top {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 200;
+            width: 42px;
+            height: 42px;
+            border-radius: 10px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            color: var(--neon);
+            font-size: 1.1rem;
+            cursor: pointer;
+            display: grid;
+            place-items: center;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.3s, transform 0.3s, border-color 0.3s;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .back-to-top.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .back-to-top:hover {
+            border-color: var(--neon-dim);
+            box-shadow: 0 4px 25px var(--neon-glow);
+        }
+
+        /* ═══════════════════════════════════════════
+           ANIMATIONS
+           ═══════════════════════════════════════════ */
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideInLeft {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* ═══════════════════════════════════════════
+           PRINT STYLES
+           ═══════════════════════════════════════════ */
+
+        @media print {
+
+            body::before,
+            body::after,
+            .report-sidebar,
+            .report-header,
+            .back-to-top,
+            .sidebar-toggle,
+            .header-actions {
+                display: none !important;
+            }
+
+            .report-main {
+                margin-left: 0 !important;
+                max-width: 100% !important;
+                padding: 0 !important;
+            }
+
+            body {
+                background: #fff;
+                color: #111;
+            }
+
+            .md-body>* {
+                opacity: 1 !important;
+                transform: none !important;
+            }
+
+            .md-body h1,
+            .md-body h2,
+            .md-body h3 {
+                color: #111;
+            }
+
+            .md-body h1::before,
+            .md-body h3::before {
+                color: #333;
+            }
+
+            .md-body code:not(pre code) {
+                background: #f0f0f0;
+                color: #111;
+                border-color: #ccc;
+            }
+
+            .md-body pre {
+                background: #f8f8f8;
+                border-color: #ccc;
+            }
+
+            .finding-card {
+                border-color: #ccc;
+                background: #fafafa;
+            }
+        }
+
+        /* ═══════════════════════════════════════════
+           RESPONSIVE
+           ═══════════════════════════════════════════ */
+
+        @media (max-width: 960px) {
+            .report-sidebar {
+                transform: translateX(-100%);
+            }
+
+            .report-sidebar.open {
+                transform: translateX(0);
+            }
+
+            .sidebar-toggle {
+                display: grid;
+            }
+
+            .report-main {
+                margin-left: 0;
+                max-width: 100%;
+                padding: 2rem 1.25rem 4rem;
+            }
+
+            .stamp-stats {
+                gap: 1.5rem;
+            }
+
+            .header-actions {
+                display: none;
+            }
+
+            .read-progress {
+                width: 80px;
+            }
+        }
+
+        @media (max-width: 560px) {
+            .report-header {
+                padding: 0 1rem;
+            }
+
+            .header-divider,
+            .header-tag {
+                display: none;
+            }
+
+            .report-main {
+                padding: 1.5rem 1rem 4rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ═══ HEADER ═══ -->
+    <header class="report-header">
+        <div class="header-left">
+            <a href="/" class="brand-link">
+                <div class="brand-icon">D</div>
+                <div class="brand-name">Dead<span>Hunt</span></div>
+            </a>
+            <div class="header-divider"></div>
+            <span class="header-tag">Forensic Report</span>
+        </div>
+        <div class="header-right">
+            <div class="read-progress">
+                <div class="read-progress-bar" id="read-bar"></div>
+            </div>
+            <span class="read-pct" id="read-pct">0%</span>
+            <div class="header-actions">
+                <button class="action-btn" id="btn-pdf" title="Download PDF">⤓ PDF</button>
+                <button class="action-btn" id="btn-copy" title="Copy raw markdown">⧉ Copy MD</button>
+                <a href="/" class="action-btn primary">+ New Scan</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- ═══ LAYOUT ═══ -->
+    <div class="report-layout">
+
+        <!-- ── SIDEBAR ── -->
+        <aside class="report-sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-label">Repository</div>
+                <div class="repo-name" id="repo-name">—</div>
+                <div class="scan-meta" id="scan-meta"></div>
+            </div>
+
+            <div class="health-section" id="health-section">
+                <div class="health-ring-container">
+                    <div class="health-ring">
+                        <svg viewBox="0 0 36 36">
+                            <circle class="health-ring-bg" cx="18" cy="18" r="15.9"></circle>
+                            <circle class="health-ring-fill" id="health-ring-fill" cx="18" cy="18" r="15.9"
+                                stroke-dasharray="100, 100" stroke-dashoffset="100"></circle>
+                        </svg>
+                        <div class="health-score-text" id="health-score-text">—</div>
+                    </div>
+                    <div class="health-details">
+                        <div class="health-label">Codebase Health</div>
+                        <div class="health-verdict" id="health-verdict">Analyzing...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="toc-scroll" id="toc-scroll">
+                <div class="toc-group-label">Table of Contents</div>
+                <div id="toc-list"></div>
+            </div>
+        </aside>
+
+        <!-- ── MAIN ── -->
+        <main class="report-main">
+            <div class="report-content">
+
+                <!-- Stamp Header -->
+                <div class="report-stamp" id="report-stamp">
+                    <div class="stamp-classification">☠ Forensic Analysis Report</div>
+                    <h1 class="stamp-title">Dead Code <span>Autopsy</span></h1>
+                    <p class="stamp-subtitle" id="stamp-subtitle">Loading analysis data...</p>
+                    <div class="stamp-stats" id="stamp-stats"></div>
+                </div>
+
+                <!-- Loading State -->
+                <div class="loading-state" id="loading-state">
+                    <div class="loading-skull">💀</div>
+                    <div class="loading-text">Rendering forensic findings...</div>
+                    <div class="loading-bar">
+                        <div class="loading-bar-fill"></div>
+                    </div>
+                </div>
+
+                <!-- Rendered Markdown -->
+                <div class="md-body" id="md-body" style="display:none;"></div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- ── BACK TO TOP ── -->
+    <button class="back-to-top" id="back-to-top" title="Back to top">↑</button>
+
+    <!-- ── MOBILE TOGGLE ── -->
+    <button class="sidebar-toggle" id="sidebar-toggle">☰</button>
+
+    <script>
+        (function () {
+            'use strict';
+
+            // ═══════════════════════════════════════════
+            // HELPERS
+            // ═══════════════════════════════════════════
+
+            const qs = (sel) => document.querySelector(sel);
+            const qsa = (sel) => document.querySelectorAll(sel);
+
+            // ═══════════════════════════════════════════
+            // DATA INJECTION (Jinja2)
+            // ═══════════════════════════════════════════
+
+            // Raw markdown from the LLM — injected by Flask/Jinja2
+            let RAW_MARKDOWN = '';
+            try {
+                RAW_MARKDOWN = {{ report_markdown | tojson | safe }};
+            } catch (e) {
+                RAW_MARKDOWN = '## No Report Data\nThe report markdown was not provided by the server.';
+            }
+
+            // Repo metadata — injected by Flask/Jinja2
+            const REPO_META = {
+                repository: {{ repo_name | default("unknown/repo", true) | tojson | safe }},
+                scan_timestamp: {{ scan_timestamp | default("", true) | tojson | safe }},
+                language_version: {{ language_version | default("", true) | tojson | safe }},
+                total_files_scanned: {{ total_files_scanned | default(0, true) | tojson | safe }},
+                dead_code_count: {{ dead_code_count | default(0, true) | tojson | safe }},
+                zombie_dep_count: {{ zombie_dep_count | default(0, true) | tojson | safe }},
+                false_positive_count: {{ false_positive_count | default(0, true) | tojson | safe }},
+                actionable_count: {{ actionable_count | default(0, true) | tojson | safe }}
+            };
+
+        // ═══════════════════════════════════════════
+        // MARKDOWN RENDERER SETUP (marked v4)
+        // ═══════════════════════════════════════════
+
+        // Custom renderer for heading IDs
+        const renderer = new marked.Renderer();
+        let headingIndex = 0;
+
+        renderer.heading = function (text, level) {
+            const cleanText = String(text).replace(/<[^>]*>/g, '');
+            const slug = 'section-' + (headingIndex++) + '-' + cleanText.toLowerCase()
+                .replace(/[^\w]+/g, '-')
+                .replace(/(^-|-$)/g, '');
+            return '<h' + level + ' id="' + slug + '">' + text + '</h' + level + '>\n';
+        };
+
+        marked.setOptions({
+            renderer: renderer,
+            gfm: true,
+            breaks: false,
+            sanitize: false,
+            smartypants: false,
+            highlight: function (code, lang) {
+                if (lang && hljs.getLanguage(lang)) {
+                    try { return hljs.highlight(code, { language: lang }).value; }
+                    catch (e) { /* fall through */ }
+                }
+                try { return hljs.highlightAuto(code).value; }
+                catch (e) { /* fall through */ }
+                return code;
+            }
+        });
+
+        // ═══════════════════════════════════════════
+        // RENDER REPORT
+        // ═══════════════════════════════════════════
+
+        function renderReport() {
+            var mdBody = qs('#md-body');
+            var loading = qs('#loading-state');
+
+            if (!mdBody || !loading) return;
+
+            // Populate sidebar & stamp metadata
+            populateMeta();
+
+            // Parse markdown → HTML
+            try {
+                var html = marked.parse(RAW_MARKDOWN || '');
+                mdBody.innerHTML = html;
+            } catch (err) {
+                mdBody.innerHTML = '<p style="color:var(--danger);">Error rendering report: ' + err.message + '</p>';
+            }
+
+            // Post-process: turn finding headings into rich cards
+            enhanceFindings(mdBody);
+
+            // Syntax-highlight any remaining code blocks
+            mdBody.querySelectorAll('pre code').forEach(function (block) {
+                hljs.highlightElement(block);
+            });
+
+            // Swap loading → content
+            setTimeout(function () {
+                loading.style.display = 'none';
+                mdBody.style.display = 'block';
+
+                buildTOC();
+                setupRevealObserver();
+                computeHealthScore();
+            }, 400);
+        }
+
+        // ═══════════════════════════════════════════
+        // POPULATE METADATA
+        // ═══════════════════════════════════════════
+
+        function populateMeta() {
+            var m = REPO_META;
+
+            var repoName = qs('#repo-name');
+            if (repoName) repoName.textContent = m.repository || '—';
+
+            // Sidebar meta rows
+            var metaContainer = qs('#scan-meta');
+            if (metaContainer) {
+                var rows = '';
+                if (m.scan_timestamp) {
+                    var d = new Date(m.scan_timestamp);
+                    var formatted = isNaN(d.getTime()) ? m.scan_timestamp : d.toLocaleString();
+                    rows += '<div class="meta-row"><span class="label">Scanned:</span><span class="value">' + formatted + '</span></div>';
+                }
+                if (m.language_version) {
+                    rows += '<div class="meta-row"><span class="label">Python:</span><span class="value">v' + m.language_version + '</span></div>';
+                }
+                if (m.total_files_scanned != null) {
+                    rows += '<div class="meta-row"><span class="label">Files:</span><span class="value">' + m.total_files_scanned + '</span></div>';
+                }
+                metaContainer.innerHTML = rows;
+            }
+
+            // Stamp header
+            var subtitle = qs('#stamp-subtitle');
+            if (subtitle) subtitle.textContent = 'Forensic analysis of ' + (m.repository || 'repository');
+
+            var statsContainer = qs('#stamp-stats');
+            if (statsContainer) {
+                var statsData = [
+                    { value: (m.total_files_scanned != null && m.total_files_scanned !== '') ? m.total_files_scanned : '—', label: 'Files Scanned', cls: 'info' },
+                    { value: (m.dead_code_count != null && m.dead_code_count !== '') ? m.dead_code_count : '—', label: 'Dead Code Flags', cls: 'danger' },
+                    { value: (m.zombie_dep_count != null && m.zombie_dep_count !== '') ? m.zombie_dep_count : '—', label: 'Zombie Deps', cls: 'warning' },
+                    { value: (m.actionable_count != null && m.actionable_count !== '') ? m.actionable_count : '—', label: 'Actionable', cls: 'neon' }
+                ];
+                statsContainer.innerHTML = statsData.map(function (s) {
+                    return '<div class="stamp-stat">' +
+                        '<div class="stamp-stat-value ' + s.cls + '">' + s.value + '</div>' +
+                        '<div class="stamp-stat-label">' + s.label + '</div>' +
+                        '</div>';
+                }).join('');
+            }
+        }
+
+        // ═══════════════════════════════════════════
+        // ENHANCE FINDINGS
+        // Turns h2 finding blocks into styled cards.
+        // Supports BOTH formats:
+        //   Old: ## Target: file — entity
+        //   New: ## file — entity (type)
+        // ═══════════════════════════════════════════
+
+        function enhanceFindings(container) {
+            var headings = container.querySelectorAll('h2');
+
+            headings.forEach(function (h2) {
+                var text = h2.textContent || '';
+
+                // Skip headings that are clearly section headers (e.g. "Executive Summary", "Zombie Dependencies")
+                var lower = text.toLowerCase();
+                if (lower === 'executive summary' || lower === 'zombie dependencies') return;
+
+                // Match finding-style headings:
+                //   "## Target: ..." OR "## file — entity (type)" OR "## file — entity"
+                var isFinding = lower.startsWith('target:') ||
+                    text.includes(' — ') ||
+                    text.includes(' - ') && (text.includes('.py') || text.includes('.js') || text.includes('\\'));
+
+                if (!isFinding) return;
+
+                // Collect siblings until next h2, h1, or hr
+                var siblings = [];
+                var el = h2.nextElementSibling;
+                while (el && el.tagName !== 'H1' && el.tagName !== 'H2' && el.tagName !== 'HR') {
+                    siblings.push(el);
+                    el = el.nextElementSibling;
+                }
+
+                // Extract metadata from sibling text content
+                var verdictText = '';
+                var riskText = '';
+                var bodyParts = [];
+                var actionSteps = [];
+
+                siblings.forEach(function (sib) {
+                    var txt = sib.textContent || '';
+
+                    if (txt.includes('Verdict:')) {
+                        // grab text after "Verdict:" up to the next newline or bold marker
+                        var afterVerdict = txt.split('Verdict:')[1];
+                        if (afterVerdict) verdictText = afterVerdict.split('\n')[0].trim();
+                    }
+                    if (txt.includes('Risk of Deletion:')) {
+                        var afterRisk = txt.split('Risk of Deletion:')[1];
+                        if (afterRisk) riskText = afterRisk.trim().split('\n')[0].toLowerCase();
+                    }
+
+                    // Collect ordered list items as action steps
+                    if (sib.tagName === 'OL') {
+                        sib.querySelectorAll('li').forEach(function (li) {
+                            actionSteps.push(li.innerHTML);
+                        });
+                    }
+
+                    bodyParts.push(sib.outerHTML);
+                });
+
+                // Determine risk class
+                var riskClass = 'low';
+                if (riskText.includes('high') || riskText.includes('critical')) riskClass = 'high';
+                else if (riskText.includes('medium')) riskClass = 'medium';
+                else if (riskText.includes('none')) riskClass = 'low';
+
+                // Determine verdict class
+                var verdictClass = 'dead';
+                var verdictLabel = verdictText || 'Unknown';
+
+                // Clean up verdict label — remove trailing sentences
+                verdictLabel = verdictLabel.replace(/\s+$/, '');
+                // Sometimes verdicts look like "Confirmed Dead" or "False Positive" followed by reasoning
+                var firstSentenceEnd = verdictLabel.indexOf('.');
+                if (firstSentenceEnd > 0 && firstSentenceEnd < 40) {
+                    verdictLabel = verdictLabel.substring(0, firstSentenceEnd).trim();
+                }
+
+                var lv = verdictLabel.toLowerCase();
+                if (lv.includes('false positive')) {
+                    verdictClass = 'false-positive';
+                    verdictLabel = 'False Positive';
+                } else if (lv.includes('confirmed dead')) {
+                    verdictClass = 'dead';
+                    verdictLabel = 'Confirmed Dead';
+                } else if (lv.includes('zombie') || lv.includes('truly zombie')) {
+                    verdictClass = 'zombie';
+                    verdictLabel = 'Zombie';
+                } else if (lv.includes('unverified') || lv.includes('needs cross')) {
+                    verdictClass = 'zombie';
+                    verdictLabel = 'Unverified';
+                } else if (lv.includes('noise')) {
+                    verdictClass = 'false-positive';
+                    verdictLabel = 'Noise';
+                } else if (lv.includes('potentially')) {
+                    verdictClass = 'zombie';
+                    verdictLabel = 'Potentially Dead';
+                }
+
+                // Build action steps HTML if we captured them
+                var stepsHtml = '';
+                if (actionSteps.length > 0) {
+                    stepsHtml = '<div class="finding-steps">' +
+                        '<div class="finding-steps-label">Recommended Action</div>' +
+                        '<ol>' + actionSteps.map(function (s) { return '<li>' + s + '</li>'; }).join('') + '</ol>' +
+                        '</div>';
+                }
+
+                // Build the card
+                var card = document.createElement('div');
+                card.className = 'finding-card risk-' + riskClass;
+
+                // Clean up the target name
+                var targetName = text.replace(/^Target:\s*/i, '').trim();
+
+                // Build body — exclude the action OL since we handle it separately
+                var cardBodyHtml = '';
+                siblings.forEach(function (sib) {
+                    if (sib.tagName === 'OL') return; // skip — rendered in stepsHtml
+                    cardBodyHtml += sib.outerHTML;
+                });
+
+                card.innerHTML =
+                    '<div class="finding-header">' +
+                    '<div class="finding-target">' + targetName + '</div>' +
+                    '<span class="verdict-badge ' + verdictClass + '">' + verdictLabel + '</span>' +
+                    '<span class="risk-badge ' + riskClass + '">' + riskClass + ' risk</span>' +
+                    '</div>' +
+                    '<div class="finding-body">' +
+                    cardBodyHtml +
+                    stepsHtml +
+                    '</div>';
+
+                // Replace h2 + its siblings with the card
+                siblings.forEach(function (sib) { sib.remove(); });
+                h2.replaceWith(card);
+            });
+        }
+
+        // ═══════════════════════════════════════════
+        // ENHANCE FINDINGS FOR PDF
+        // Same logic as enhanceFindings but outputs
+        // PDF-optimized light-theme cards.
+        // ═══════════════════════════════════════════
+
+        function enhanceFindingsForPdf(container) {
+            var headings = container.querySelectorAll('h2');
+
+            headings.forEach(function(h2) {
+                var text = h2.textContent || '';
+                var lower = text.toLowerCase();
+                if (lower === 'executive summary' || lower === 'zombie dependencies') return;
+
+                var isFinding = lower.startsWith('target:') ||
+                                text.includes(' — ') ||
+                                text.includes(' - ') && (text.includes('.py') || text.includes('.js') || text.includes('\\'));
+                if (!isFinding) return;
+
+                var siblings = [];
+                var el = h2.nextElementSibling;
+                while (el && el.tagName !== 'H1' && el.tagName !== 'H2' && el.tagName !== 'HR') {
+                    siblings.push(el);
+                    el = el.nextElementSibling;
+                }
+
+                var verdictText = '';
+                var riskText = '';
+                var bodyParts = [];
+
+                siblings.forEach(function(sib) {
+                    var txt = sib.textContent || '';
+                    if (txt.includes('Verdict:')) {
+                        var afterVerdict = txt.split('Verdict:')[1];
+                        if (afterVerdict) verdictText = afterVerdict.split('\n')[0].trim();
+                    }
+                    if (txt.includes('Risk of Deletion:')) {
+                        var afterRisk = txt.split('Risk of Deletion:')[1];
+                        if (afterRisk) riskText = afterRisk.trim().split('\n')[0].toLowerCase();
+                    }
+                    bodyParts.push(sib.outerHTML);
+                });
+
+                var riskClass = 'low';
+                if (riskText.includes('high') || riskText.includes('critical')) riskClass = 'high';
+                else if (riskText.includes('medium')) riskClass = 'medium';
+                else if (riskText.includes('none')) riskClass = 'low';
+
+                var verdictLabel = verdictText || 'Unknown';
+                verdictLabel = verdictLabel.replace(/\s+$/, '');
+                var firstSentenceEnd = verdictLabel.indexOf('.');
+                if (firstSentenceEnd > 0 && firstSentenceEnd < 40) {
+                    verdictLabel = verdictLabel.substring(0, firstSentenceEnd).trim();
+                }
+
+                var lv = verdictLabel.toLowerCase();
+                var badgeClass = 'badge-dead';
+                if (lv.includes('false positive')) {
+                    badgeClass = 'badge-fp'; verdictLabel = 'False Positive';
+                } else if (lv.includes('confirmed dead')) {
+                    badgeClass = 'badge-dead'; verdictLabel = 'Confirmed Dead';
+                } else if (lv.includes('zombie') || lv.includes('truly zombie')) {
+                    badgeClass = 'badge-zombie'; verdictLabel = 'Zombie';
+                } else if (lv.includes('unverified') || lv.includes('needs cross')) {
+                    badgeClass = 'badge-zombie'; verdictLabel = 'Unverified';
+                } else if (lv.includes('noise')) {
+                    badgeClass = 'badge-fp'; verdictLabel = 'Noise';
+                } else if (lv.includes('potentially')) {
+                    badgeClass = 'badge-zombie'; verdictLabel = 'Potentially Dead';
+                }
+
+                var targetName = text.replace(/^Target:\s*/i, '').trim();
+
+                var card = document.createElement('div');
+                card.className = 'pdf-finding-card risk-' + riskClass;
+                card.innerHTML =
+                    '<div class="pdf-finding-header">' +
+                        '<div class="pdf-finding-target">' + targetName + '</div>' +
+                        '<span class="pdf-badge ' + badgeClass + '">' + verdictLabel + '</span>' +
+                        '<span class="pdf-badge badge-risk-' + riskClass + '">' + riskClass + ' risk</span>' +
+                    '</div>' +
+                    '<div class="pdf-finding-body">' + bodyParts.join('') + '</div>';
+
+                siblings.forEach(function(sib) { sib.remove(); });
+                h2.replaceWith(card);
+            });
+        }
+
+        // ═══════════════════════════════════════════
+        // TABLE OF CONTENTS
+        // ═══════════════════════════════════════════
+
+        function buildTOC() {
+            var tocList = qs('#toc-list');
+            if (!tocList) return;
+
+            var mdBody = qs('#md-body');
+            if (!mdBody) return;
+
+            var headings = mdBody.querySelectorAll('h1[id], h2[id], h3[id]');
+            var cards = mdBody.querySelectorAll('.finding-card');
+
+            var html = '';
+
+            // Add remaining headings
+            headings.forEach(function (h) {
+                var depth = parseInt(h.tagName.charAt(1));
+                var text = h.textContent.replace(/^\/\/\s*/, '').replace(/^▸\s*/, '');
+                html += '<a href="#' + h.id + '" class="toc-item depth-' + depth + '" data-target="' + h.id + '">' +
+                    '<div class="toc-bullet"></div>' +
+                    '<div class="toc-text">' + text + '</div>' +
+                    '</a>';
+            });
+
+            // Add finding cards
+            cards.forEach(function (card, i) {
+                var target = card.querySelector('.finding-target');
+                if (!target) return;
+                var cardId = 'finding-' + i;
+                card.id = cardId;
+
+                var badge = card.querySelector('.verdict-badge');
+                var badgeText = badge ? ' · ' + badge.textContent : '';
+
+                // Truncate long target names for TOC
+                var tocText = target.textContent;
+                if (tocText.length > 50) tocText = tocText.substring(0, 47) + '…';
+
+                html += '<a href="#' + cardId + '" class="toc-item depth-3" data-target="' + cardId + '">' +
+                    '<div class="toc-bullet"></div>' +
+                    '<div class="toc-text">' + tocText + badgeText + '</div>' +
+                    '</a>';
+            });
+
+            tocList.innerHTML = html;
+            setupScrollSpy();
+        }
+
+        // ═══════════════════════════════════════════
+        // SCROLL SPY
+        // ═══════════════════════════════════════════
+
+        function setupScrollSpy() {
+            var tocItems = qsa('.toc-item[data-target]');
+            if (tocItems.length === 0) return;
+
+            var targets = [];
+            tocItems.forEach(function (item) {
+                var target = document.getElementById(item.dataset.target);
+                if (target) targets.push({ item: item, target: target });
+            });
+
+            var ticking = false;
+
+            function onScroll() {
+                if (ticking) return;
+                ticking = true;
+                requestAnimationFrame(function () {
+                    var scrollY = window.scrollY + 150;
+                    var activeIdx = 0;
+
+                    for (var i = targets.length - 1; i >= 0; i--) {
+                        if (targets[i].target.offsetTop <= scrollY) {
+                            activeIdx = i;
+                            break;
+                        }
+                    }
+
+                    tocItems.forEach(function (t) { t.classList.remove('active'); });
+                    if (targets[activeIdx]) {
+                        targets[activeIdx].item.classList.add('active');
+                        targets[activeIdx].item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    }
+
+                    ticking = false;
+                });
+            }
+
+            window.addEventListener('scroll', onScroll, { passive: true });
+            onScroll();
+        }
+
+        // ═══════════════════════════════════════════
+        // SCROLL-TRIGGERED REVEAL
+        // ═══════════════════════════════════════════
+
+        function setupRevealObserver() {
+            var elements = qsa('#md-body > *, .finding-card');
+            if (!elements.length) return;
+
+            var observer = new IntersectionObserver(function (entries) {
+                entries.forEach(function (entry) {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('revealed');
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+            elements.forEach(function (el, i) {
+                el.style.transitionDelay = Math.min(i * 0.03, 0.3) + 's';
+                observer.observe(el);
+            });
+        }
+
+        // ═══════════════════════════════════════════
+        // HEALTH SCORE
+        // ═══════════════════════════════════════════
+
+        function computeHealthScore() {
+            var m = REPO_META;
+            var actionable = parseInt(m.actionable_count) || 0;
+            var deadCode = parseInt(m.dead_code_count) || 0;
+            var zombieDeps = parseInt(m.zombie_dep_count) || 0;
+
+            // If stats are all zero, try to count from the rendered cards
+            if (actionable === 0 && deadCode === 0 && zombieDeps === 0) {
+                var allCards = qsa('.finding-card');
+                var deadCards = qsa('.finding-card .verdict-badge.dead');
+                var zombieCards = qsa('.finding-card .verdict-badge.zombie');
+                deadCode = deadCards.length;
+                zombieDeps = zombieCards.length;
+                actionable = deadCards.length;
+            }
+
+            var score = 100 - (actionable * 8) - (zombieDeps * 3);
+            score = Math.max(0, Math.min(100, score));
+            if (actionable === 0 && deadCode === 0 && zombieDeps === 0) score = 75; // neutral when no numbers
+
+            var ring = qs('#health-ring-fill');
+            var textEl = qs('#health-score-text');
+            var verdict = qs('#health-verdict');
+            if (!ring || !textEl || !verdict) return;
+
+            var offset = 100 - score;
+            ring.style.strokeDashoffset = offset;
+
+            var color, label;
+            if (score >= 80) {
+                color = 'var(--neon)'; label = 'Healthy';
+            } else if (score >= 50) {
+                color = 'var(--warning)'; label = 'Needs Attention';
+            } else {
+                color = 'var(--danger)'; label = 'Critical';
+            }
+
+            ring.style.stroke = color;
+            textEl.style.color = color;
+            verdict.style.color = color;
+
+            // Animate counter
+            var current = 0;
+            var increment = Math.max(1, Math.ceil(score / 40));
+            var timer = setInterval(function () {
+                current += increment;
+                if (current >= score) {
+                    current = score;
+                    clearInterval(timer);
+                }
+                textEl.textContent = current;
+            }, 25);
+
+            verdict.textContent = label;
+        }
+
+        // ═══════════════════════════════════════════
+        // READ PROGRESS BAR
+        // ═══════════════════════════════════════════
+
+        function setupReadProgress() {
+            var bar = qs('#read-bar');
+            var pct = qs('#read-pct');
+            if (!bar || !pct) return;
+
+            window.addEventListener('scroll', function () {
+                var scrollTop = window.scrollY;
+                var docHeight = document.documentElement.scrollHeight - window.innerHeight;
+                var progress = docHeight > 0 ? Math.round((scrollTop / docHeight) * 100) : 0;
+                bar.style.width = progress + '%';
+                pct.textContent = progress + '%';
+            }, { passive: true });
+        }
+
+        // ═══════════════════════════════════════════
+        // BACK TO TOP
+        // ═══════════════════════════════════════════
+
+        function setupBackToTop() {
+            var btn = qs('#back-to-top');
+            if (!btn) return;
+
+            window.addEventListener('scroll', function () {
+                btn.classList.toggle('visible', window.scrollY > 400);
+            }, { passive: true });
+
+            btn.addEventListener('click', function () {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+        }
+
+        // ═══════════════════════════════════════════
+        // SIDEBAR TOGGLE (mobile)
+        // ═══════════════════════════════════════════
+
+        function setupSidebarToggle() {
+            var sidebar = qs('#sidebar');
+            var toggle = qs('#sidebar-toggle');
+            if (!sidebar || !toggle) return;
+
+            toggle.addEventListener('click', function (e) {
+                e.stopPropagation();
+                sidebar.classList.toggle('open');
+                toggle.textContent = sidebar.classList.contains('open') ? '✕' : '☰';
+            });
+
+            document.addEventListener('click', function (e) {
+                if (!sidebar.contains(e.target) && !toggle.contains(e.target)) {
+                    sidebar.classList.remove('open');
+                    toggle.textContent = '☰';
+                }
+            });
+        }
+
+        // ═══════════════════════════════════════════
+        // ACTIONS — Print & Copy
+        // ═══════════════════════════════════════════
+
+        function setupActions() {
+            // PDF download button
+            var pdfBtn = qs('#btn-pdf');
+            if (pdfBtn) {
+                pdfBtn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    var originalText = pdfBtn.textContent;
+                    pdfBtn.textContent = '⏳ Generating…';
+                    pdfBtn.style.pointerEvents = 'none';
+
+                    // Clone the report content so we don't mutate the live DOM
+                    var source = qs('.report-content');
+                    if (!source) { pdfBtn.textContent = originalText; return; }
+
+                    // Make all elements visible (undo scroll-reveal opacity)
+                    var allEls = source.querySelectorAll('*');
+                    allEls.forEach(function (el) {
+                        el.style.opacity = '1';
+                        el.style.transform = 'none';
+                    });
+
+                    var repoName = (REPO_META.repository || 'report').replace(/[\/\\]/g, '-');
+                    var filename = 'DeadHunt-' + repoName + '.pdf';
+
+                    var opt = {
+                        margin: [10, 10, 10, 10],
+                        filename: filename,
+                        image: { type: 'jpeg', quality: 0.95 },
+                        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#05080a' },
+                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+                    };
+
+                    html2pdf().set(opt).from(source).save().then(function () {
+                        pdfBtn.textContent = '✓ Downloaded!';
+                        pdfBtn.style.pointerEvents = '';
+                        setTimeout(function () { pdfBtn.textContent = originalText; }, 2000);
+                    }).catch(function () {
+                        pdfBtn.textContent = '✕ Failed';
+                        pdfBtn.style.pointerEvents = '';
+                        setTimeout(function () { pdfBtn.textContent = originalText; }, 2000);
+                    });
+                });
+            }
+
+            // Copy markdown button
+            var copyBtn = qs('#btn-copy');
+            if (copyBtn) {
+                copyBtn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    // Try modern clipboard API first, fall back to execCommand
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(RAW_MARKDOWN).then(function () {
+                            copyBtn.textContent = '✓ Copied!';
+                            setTimeout(function () { copyBtn.textContent = '⧉ Copy MD'; }, 2000);
+                        }).catch(function () {
+                            fallbackCopy();
+                        });
+                    } else {
+                        fallbackCopy();
+                    }
+
+                    function fallbackCopy() {
+                        var textarea = document.createElement('textarea');
+                        textarea.value = RAW_MARKDOWN;
+                        textarea.style.position = 'fixed';
+                        textarea.style.opacity = '0';
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        try {
+                            document.execCommand('copy');
+                            copyBtn.textContent = '✓ Copied!';
+                        } catch (err) {
+                            copyBtn.textContent = '✕ Failed';
+                        }
+                        document.body.removeChild(textarea);
+                        setTimeout(function () { copyBtn.textContent = '⧉ Copy MD'; }, 2000);
+                    }
+                });
+            }
+        }
+
+        // ═══════════════════════════════════════════
+        // INIT
+        // ═══════════════════════════════════════════
+
+        document.addEventListener('DOMContentLoaded', function () {
+            setupReadProgress();
+            setupBackToTop();
+            setupSidebarToggle();
+            setupActions();
+
+            // Render after a brief delay for smooth visual transition
+            setTimeout(renderReport, 300);
+        });
+
+    }) ();
+    </script>
+
+</body>
+
+</html>
