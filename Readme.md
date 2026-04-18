@@ -1,6 +1,6 @@
+<div align="center">
 # 💀 DeadHunt
 
-<div align="center">
 
 **Hunt the Dead Code. Expose the Zombies.**
 
