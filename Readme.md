@@ -93,7 +93,7 @@
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/DeadHunt.git
+   git clone https://github.com/indiser/DeadHunt.git
    cd DeadHunt
    ```
 
@@ -111,9 +111,9 @@
    Add your API keys to `.env`:
    ```env
    GEMINI_API_KEY=your_gemini_api_key_here
-   OPENROUTER_API_KEY=your_openrouter_key_here  # Optional
-   GROQ_API_KEY=your_groq_key_here              # Optional
-   CEREBRAS_API_KEY=your_cerebras_key_here      # Optional
+   OPENROUTER_API_KEY=your_openrouter_key_here  
+   GROQ_API_KEY=your_groq_key_here              
+   CEREBRAS_API_KEY=your_cerebras_key_here      
    ```
 
 4. **Run the application**
@@ -194,7 +194,7 @@ Findings → LLM Analysis → Verdict Assignment → Risk Categorization
 DeadHunt/
 ├── app.py                 # Flask application & routing
 ├── enginex.py             # Core analysis engine
-├── deadhunt_router.py     # Multi-provider LLM failover (if exists)
+├── deadhunt_router.py     # Multi-provider LLM failover 
 ├── templates/
 │   ├── index.html         # Landing page
 │   └── report.html        # Analysis report UI
@@ -293,11 +293,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📧 Contact
 
-**Project Maintainer**: [Your Name]
+**Project Maintainer**: Indiser
 
-- GitHub: [@yourusername](https://github.com/yourusername)
-- Email: your.email@example.com
-- Twitter: [@yourhandle](https://twitter.com/yourhandle)
+- GitHub: [indiser](https://github.com/indiser)
+- Email: indiser01@gmail.com
 
 ---
 
